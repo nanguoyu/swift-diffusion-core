@@ -26,5 +26,12 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
             ]
         ),
+        .testTarget(
+            name: "DiffusionCoreTests",
+            dependencies: [
+                "DiffusionCore",
+                .product(name: "MLX", package: "mlx-swift"),
+            ]
+        ),
     ]
 )

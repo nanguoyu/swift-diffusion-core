@@ -12,8 +12,8 @@ public protocol DiffusionArchitecture: Sendable {
     /// afterwards (two-phase staging).
     func encode(_ prompt: String, negative: String?, source: WeightSource) async throws -> Conditioning
 
-    /// The denoiser as an ordered list of independently loadable blocks (for streaming).
-    func denoiserBlocks(source: WeightSource) throws -> [any StreamableBlock]
+    /// Build the denoiser (patch-embed → streamable blocks → unembed) for this run.
+    func makeDenoiser(source: WeightSource) throws -> any Denoiser
 
     /// Prepare the initial latent for `size`/`seed` (+ optional img2img reference).
     func initialLatent(size: ImageSize, seed: UInt64, reference: CGImage?, strength: Float,
@@ -21,6 +21,18 @@ public protocol DiffusionArchitecture: Sendable {
 
     /// Decode the final latent to an image (VAE).
     func decode(_ latent: MLXArray, source: WeightSource) async throws -> CGImage
+}
+
+/// The denoiser: patch-embed → N streamable blocks → unembed to a velocity/noise prediction.
+/// Splitting embed/unembed from the blocks lets the engine stream the (large) blocks while
+/// embed/unembed (small, resident) stay loaded.
+public protocol Denoiser: AnyObject {
+    /// The ordered transformer blocks, each independently loadable/releasable.
+    var blocks: [any StreamableBlock] { get }
+    /// Map the latent (+ timestep + conditioning) into the block hidden state.
+    func embed(latent: MLXArray, timestep: MLXArray, conditioning: Conditioning) -> MLXArray
+    /// Map the final hidden state to the model output (velocity / noise) in latent space.
+    func unembed(_ hidden: MLXArray) -> MLXArray
 }
 
 /// Static facts the engine needs to drive an architecture.
