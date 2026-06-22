@@ -35,10 +35,24 @@ public enum MemoryGovernor {
                 estimatedPeakBytes: streamingPeak,
                 note: external ? "Streams from SSD" : "Streams from disk")
         }
+        // Rejection is driven by streamingPeak (the true minimum), so report that honest number.
         return EngineCapabilities(runnable: false, residency: .unsupported,
-                                  estimatedPeakBytes: twoPhasePeak, note: "Needs more memory")
+                                  estimatedPeakBytes: streamingPeak, note: "Needs more memory")
     }
 
     /// Live headroom for this process (bytes). Use this — not nominal RAM — at load time.
-    public static func availableBytesNow() -> Int64 { Int64(MemoryProbe.availableBytes()) }
+    /// Returns `Int64.max` where the probe doesn't apply (avoids a `UInt64.max → Int64` trap).
+    public static func availableBytesNow() -> Int64 {
+        let bytes = MemoryProbe.availableBytes()
+        return bytes == .max ? .max : Int64(bytes)
+    }
+
+    /// The next-leaner residency rung — used when live headroom is below the planned peak.
+    public static func leaner(than residency: EngineCapabilities.Residency) -> EngineCapabilities.Residency {
+        switch residency {
+        case .resident: return .twoPhase
+        case .twoPhase: return .streamingInternal
+        case .streamingInternal, .streamingExternal, .unsupported: return residency
+        }
+    }
 }

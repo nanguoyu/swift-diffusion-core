@@ -72,4 +72,30 @@ final class ImageTests: XCTestCase {
         let arr = MLXArray(converting: [0.0, 0.0], [2]).asType(.float32)
         XCTAssertNil(ImageConversion.cgImage(fromHWC: arr))
     }
+
+    func testSignedRangeDecodes() {
+        // [-1, 1] VAE range must map through denormalize, not clamp negatives to black.
+        let arr = MLXArray(converting: [-1.0, -1.0, -1.0, 1.0, 1.0, 1.0], [1, 2, 3]).asType(.float32)
+        let image = ImageConversion.cgImage(fromHWC: arr, range: .signed)
+        XCTAssertEqual(image?.width, 2)
+        XCTAssertEqual(image?.height, 1)
+    }
+}
+
+final class CapabilitiesTests: XCTestCase {
+    private let variant = ModelCatalog.fluxKlein4B.variants.first { $0.precision == .q4 }!
+
+    func testFluxUnsupportedOnPhone() {
+        let phone = DeviceTier(physicalMemoryBytes: 12_000_000_000, isPhone: true)
+        let caps = MLXDiffusionEngine.capabilities(for: ModelCatalog.fluxKlein4B, variant: variant, on: phone)
+        XCTAssertFalse(caps.runnable)
+        XCTAssertEqual(caps.residency, .unsupported)
+        XCTAssertEqual(caps.note, "macOS only")
+    }
+
+    func testFluxRunnableOnMac() {
+        let mac = DeviceTier(physicalMemoryBytes: 18_000_000_000, isPhone: false)
+        let caps = MLXDiffusionEngine.capabilities(for: ModelCatalog.fluxKlein4B, variant: variant, on: mac)
+        XCTAssertTrue(caps.runnable)
+    }
 }

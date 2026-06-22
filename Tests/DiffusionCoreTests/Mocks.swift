@@ -57,5 +57,6 @@ final class MockArchitecture: DiffusionArchitecture, @unchecked Sendable {
 
 struct MockWeightSource: WeightSource {
     let isStreaming: Bool
+    let freesOnRelease = true   // mock blocks don't retain source tensors
     func tensor(_ key: TensorKey) throws -> MLXArray { MLXArray(converting: [0.0]) }
 }

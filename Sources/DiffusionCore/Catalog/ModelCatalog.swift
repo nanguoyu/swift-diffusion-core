@@ -36,7 +36,7 @@ public enum ModelCatalog {
         displayName: "FLUX.2 Klein 4B",
         family: .flux2,
         publisher: "Black Forest",
-        summary: "Distilled FLUX.2 DiT — the lightest universal model, runs resident on a phone via two-phase staging.",
+        summary: "Distilled FLUX.2 DiT — the lightest model; runs on Mac via the FLUX facade engine.",
         license: .apache2,
         architecture: ArchitectureSpec(family: .flux2, latentChannels: 128,
                                         defaultSampler: .flowMatchEuler, defaultSteps: 6, defaultGuidance: 1.0),

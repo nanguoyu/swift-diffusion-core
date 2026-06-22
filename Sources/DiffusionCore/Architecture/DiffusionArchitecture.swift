@@ -21,6 +21,15 @@ public protocol DiffusionArchitecture: Sendable {
 
     /// Decode the final latent to an image (VAE).
     func decode(_ latent: MLXArray, source: WeightSource) async throws -> CGImage
+
+    /// Free the text encoder after `encode` returns. The engine calls this once the
+    /// conditioning is captured (two-phase staging) so the encoder and transformer never
+    /// co-reside. Default is a no-op for architectures that don't hold a releasable encoder.
+    func releaseTextEncoder()
+}
+
+public extension DiffusionArchitecture {
+    func releaseTextEncoder() {}
 }
 
 /// The denoiser: patch-embed → N streamable blocks → unembed to a velocity/noise prediction.
@@ -31,7 +40,9 @@ public protocol Denoiser: AnyObject {
     var blocks: [any StreamableBlock] { get }
     /// Map the latent (+ timestep + conditioning) into the block hidden state.
     func embed(latent: MLXArray, timestep: MLXArray, conditioning: Conditioning) -> MLXArray
-    /// Map the final hidden state to the model output (velocity / noise) in latent space.
+    /// Map the final hidden state to the model output (velocity / noise) in *latent* space —
+    /// any patching/packing done in `embed` must be fully reversed here so the element-wise
+    /// flow-match step stays in latent space.
     func unembed(_ hidden: MLXArray) -> MLXArray
 }
 
@@ -42,14 +53,21 @@ public struct ArchitectureSpec: Sendable {
     public let defaultSampler: SamplerKind
     public let defaultSteps: Int
     public let defaultGuidance: Float
+    /// VAE latent scaling for a cheap linear latent→RGB preview. FLUX.2 uses scale 1; the
+    /// SD family uses ≈ 0.18215. `decode`/`initialLatent` apply the real scaling internally.
+    public let vaeScale: Float
+    public let vaeShift: Float
 
     public init(family: ModelFamily, latentChannels: Int, defaultSampler: SamplerKind,
-                defaultSteps: Int, defaultGuidance: Float) {
+                defaultSteps: Int, defaultGuidance: Float,
+                vaeScale: Float = 1.0, vaeShift: Float = 0.0) {
         self.family = family
         self.latentChannels = latentChannels
         self.defaultSampler = defaultSampler
         self.defaultSteps = defaultSteps
         self.defaultGuidance = defaultGuidance
+        self.vaeScale = vaeScale
+        self.vaeShift = vaeShift
     }
 }
 
@@ -57,8 +75,12 @@ public struct ArchitectureSpec: Sendable {
 public struct Conditioning: Sendable {
     public let embeddings: MLXArray
     public let pooled: MLXArray?
-    public init(embeddings: MLXArray, pooled: MLXArray? = nil) {
+    /// Architecture-specific conditioning tensors threaded into `embed` and every block —
+    /// e.g. 2D image position ids / rotary tables for FLUX double-stream and Z-Image attention.
+    public let extras: [String: MLXArray]
+    public init(embeddings: MLXArray, pooled: MLXArray? = nil, extras: [String: MLXArray] = [:]) {
         self.embeddings = embeddings
         self.pooled = pooled
+        self.extras = extras
     }
 }

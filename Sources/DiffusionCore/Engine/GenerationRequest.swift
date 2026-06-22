@@ -3,8 +3,11 @@ import CoreGraphics
 /// A single text-to-image (or image-to-image) request.
 public struct GenerationRequest: Sendable {
     public var prompt: String
+    /// Reserved for classifier-free guidance. CFG is not yet implemented; the shipped distilled
+    /// models (Z-Image Turbo, FLUX.2 Klein) run guidance-free, so this is currently ignored.
     public var negativePrompt: String?
     public var steps: Int
+    /// Reserved — see `negativePrompt`. Distilled models use guidance 1.0; currently ignored.
     public var guidance: Float
     public var seed: UInt64
     public var size: ImageSize

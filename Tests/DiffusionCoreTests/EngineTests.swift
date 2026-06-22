@@ -58,4 +58,18 @@ final class EngineTests: XCTestCase {
             XCTAssertTrue(error is EngineError)
         }
     }
+
+    func testStepsZeroThrowsBeforeAnyWork() async {
+        // The steps guard is the first statement in generate(), before the source check and any
+        // MLX op — so unvalidated UI input fails cleanly instead of tripping a sampler precondition.
+        let engine = MLXDiffusionEngine(architecture: MockArchitecture(blocks: 1), device: macTier)
+        do {
+            _ = try await engine.generate(GenerationRequest(prompt: "x", steps: 0, seed: 1), progress: { _ in })
+            XCTFail("expected invalidRequest error")
+        } catch let error as EngineError {
+            if case .invalidRequest = error {} else { XCTFail("wrong error: \(error)") }
+        } catch {
+            XCTFail("wrong error type: \(error)")
+        }
+    }
 }

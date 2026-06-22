@@ -24,9 +24,10 @@ public enum MemoryProbe {
         #endif
     }
 
-    /// Bytes the app may still allocate before hitting its limit. On non-iOS returns `.max`.
+    /// Bytes the app may still allocate before hitting its limit. Returns `.max` where the
+    /// jetsam-style probe doesn't apply (e.g. macOS).
     public static func availableBytes() -> UInt64 {
-        #if os(iOS)
+        #if os(iOS) || os(visionOS) || targetEnvironment(macCatalyst)
         return UInt64(os_proc_available_memory())
         #else
         return .max

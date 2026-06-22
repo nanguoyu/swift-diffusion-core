@@ -13,7 +13,8 @@ public enum SamplerKind: String, Sendable, CaseIterable {
 public protocol Sampler: Sendable {
     var kind: SamplerKind { get }
 
-    /// Timesteps for `steps` (and optional shift), high → low noise.
+    /// Returns `steps + 1` noise levels (sigmas), high → low, with the last equal to 0 (clean
+    /// sample). The engine integrates between consecutive sigmas, so this count is a contract.
     func timesteps(steps: Int) -> [Float]
 
     /// Combine the current latent with the model's predicted noise/velocity for one step.

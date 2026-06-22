@@ -21,4 +21,13 @@ public protocol WeightSource: Sendable {
     /// True if backed by slow/removable storage (external SSD) — the governor uses this to
     /// pick streaming vs. resident and to warn "keep the drive connected".
     var isStreaming: Bool { get }
+
+    /// True if dropping a tensor reference actually frees its buffer (an on-demand / evicting
+    /// source). The engine refuses a streaming residency plan unless this is true — otherwise
+    /// `StreamableBlock.release()` saves nothing. Fully-resident sources return `false`.
+    var freesOnRelease: Bool { get }
+}
+
+public extension WeightSource {
+    var freesOnRelease: Bool { false }
 }
