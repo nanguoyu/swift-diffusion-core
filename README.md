@@ -14,7 +14,7 @@ runtime that makes large models fit constrained devices.
   `StreamableBlock` (load → run → release), the partial-load primitives.
 - `Catalog/` — `DiffusionModel` and the model catalog.
 - `Memory/` — `DeviceTier`, `MemoryGovernor`, jetsam-accurate `MemoryProbe`.
-- `Sampling/` — the `Sampler` protocol.
+- `Sampling/` — the `Sampler` protocol + `FlowMatchEulerSampler` (FLUX.2 / Z-Image default).
 
 ## Status
 
@@ -23,4 +23,4 @@ Scaffold / protocol surface. Implementations land in Phase 0. See the app's
 
 ## License
 
-Apache-2.0 (intended).
+Apache-2.0.
