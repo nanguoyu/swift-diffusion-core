@@ -39,7 +39,7 @@ public enum ModelCatalog {
         summary: "Distilled FLUX.2 DiT — the lightest model; runs on Mac via the FLUX facade engine.",
         license: .apache2,
         architecture: ArchitectureSpec(family: .flux2, latentChannels: 128,
-                                        defaultSampler: .flowMatchEuler, defaultSteps: 6, defaultGuidance: 1.0),
+                                        defaultSampler: .flowMatchEuler, defaultSteps: 4, defaultGuidance: 1.0),
         variants: [
             ModelVariant(precision: .q8, approximateBytes: gb(8.57),
                          components: ComponentSizes(transformer: gb(4.12), textEncoder: gb(4.27), vae: gb(0.17)),
