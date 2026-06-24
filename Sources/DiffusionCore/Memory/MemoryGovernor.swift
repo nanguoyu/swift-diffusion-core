@@ -4,8 +4,10 @@ import Foundation
 /// and produces the `EngineCapabilities` the gallery shows and the engine obeys.
 public enum MemoryGovernor {
 
-    /// Rough activation/latent/attention working set on top of resident weights.
-    private static let workingSet: Int64 = 800_000_000
+    /// Rough activation/latent/attention/VAE-decode working set on top of resident weights. Measured
+    /// on-device the transient peak above resident weights runs ~1 GB (attention + VAE decode + the
+    /// encoder's deferred free), so a sub-GB estimate makes resident plans look cheaper than they run.
+    private static let workingSet: Int64 = 1_000_000_000
 
     /// Plan residency for a variant. `externalSSDAvailable` allows the streaming-external rung
     /// when the model is otherwise too big for memory.
@@ -23,7 +25,10 @@ public enum MemoryGovernor {
             return EngineCapabilities(runnable: true, residency: .resident,
                                       estimatedPeakBytes: twoPhasePeak, note: "Runs great")
         }
-        if twoPhasePeak <= Int64(Double(budget) * 1.12) {
+        // Two-phase keeps the FULL transformer resident — exactly what block-streaming exists to
+        // avoid. Never pick it when its peak exceeds the per-app budget (jetsam is unforgiving on
+        // phones); a large transformer that doesn't fit here falls through to streamingInternal.
+        if twoPhasePeak <= budget {
             return EngineCapabilities(runnable: true, residency: .twoPhase,
                                       estimatedPeakBytes: twoPhasePeak, note: "Tight · two-phase")
         }
