@@ -5,11 +5,19 @@ public enum WeightSourceError: Error, CustomStringConvertible {
     case missingTensor(String)
     case noFiles
     case duplicateTensor(String)
+    case cannotOpen(String)
+    case malformedHeader(String)
+    case unsupportedDType(String)
+    case shortRead(String)
     public var description: String {
         switch self {
         case .missingTensor(let k): return "WeightSource: missing tensor '\(k)'"
         case .noFiles: return "WeightSource: no safetensors files provided"
         case .duplicateTensor(let k): return "WeightSource: duplicate tensor key '\(k)' across files"
+        case .cannotOpen(let p): return "WeightSource: cannot open '\(p)'"
+        case .malformedHeader(let p): return "WeightSource: malformed safetensors header in '\(p)'"
+        case .unsupportedDType(let d): return "WeightSource: unsupported safetensors dtype '\(d)'"
+        case .shortRead(let k): return "WeightSource: short read for tensor '\(k)'"
         }
     }
 }
