@@ -58,13 +58,17 @@ public struct ArchitectureSpec: Sendable {
     public let vaeScale: Float
     public let vaeShift: Float
     /// Rectified-flow sigma-schedule skew (`FlowMatchEulerSampler.shift`). Distilled checkpoints
-    /// train with a shifted schedule (Z-Image = 3); the engine builds its sampler from this so an
-    /// architecture can never silently run the plain shift = 1 schedule.
+    /// train with a shifted schedule; the engine builds its sampler from this so an architecture
+    /// can never silently run the plain shift = 1 schedule.
     public let samplerShift: Float
+    /// Diffusers `shift_terminal` for the sampler (Z-Image = 0.02; 0 disables). Drives the last
+    /// working sigma so the distilled model isn't evaluated below its calibrated range.
+    public let samplerShiftTerminal: Float
 
     public init(family: ModelFamily, latentChannels: Int, defaultSampler: SamplerKind,
                 defaultSteps: Int, defaultGuidance: Float,
-                vaeScale: Float = 1.0, vaeShift: Float = 0.0, samplerShift: Float = 1.0) {
+                vaeScale: Float = 1.0, vaeShift: Float = 0.0,
+                samplerShift: Float = 1.0, samplerShiftTerminal: Float = 0.0) {
         self.family = family
         self.latentChannels = latentChannels
         self.defaultSampler = defaultSampler
@@ -73,6 +77,7 @@ public struct ArchitectureSpec: Sendable {
         self.vaeScale = vaeScale
         self.vaeShift = vaeShift
         self.samplerShift = samplerShift
+        self.samplerShiftTerminal = samplerShiftTerminal
     }
 }
 

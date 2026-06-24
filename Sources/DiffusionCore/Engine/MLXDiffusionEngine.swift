@@ -40,7 +40,8 @@ public actor MLXDiffusionEngine: DiffusionEngine {
         self.architecture = architecture
         // Build the sampler from the architecture's spec so it gets the right schedule skew (e.g.
         // Z-Image's shift = 3) instead of silently defaulting to the plain shift = 1 schedule.
-        self.sampler = sampler ?? FlowMatchEulerSampler(shift: type(of: architecture).spec.samplerShift)
+        self.sampler = sampler ?? FlowMatchEulerSampler(shift: type(of: architecture).spec.samplerShift,
+                                                        shiftTerminal: type(of: architecture).spec.samplerShiftTerminal)
         self.device = device
     }
 
