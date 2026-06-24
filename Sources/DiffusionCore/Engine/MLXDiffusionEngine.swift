@@ -35,10 +35,12 @@ public actor MLXDiffusionEngine: DiffusionEngine {
     private var residency: EngineCapabilities.Residency = .resident
 
     public init(architecture: any DiffusionArchitecture,
-                sampler: any Sampler = FlowMatchEulerSampler(),
+                sampler: (any Sampler)? = nil,
                 device: DeviceTier = .current) {
         self.architecture = architecture
-        self.sampler = sampler
+        // Build the sampler from the architecture's spec so it gets the right schedule skew (e.g.
+        // Z-Image's shift = 3) instead of silently defaulting to the plain shift = 1 schedule.
+        self.sampler = sampler ?? FlowMatchEulerSampler(shift: type(of: architecture).spec.samplerShift)
         self.device = device
     }
 

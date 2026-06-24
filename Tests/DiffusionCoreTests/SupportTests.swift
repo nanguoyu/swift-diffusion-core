@@ -8,7 +8,9 @@ final class SamplerTests: XCTestCase {
         XCTAssertEqual(ts.count, 5)
         XCTAssertEqual(ts.first!, 1.0, accuracy: 1e-6)
         XCTAssertEqual(ts.last!, 0.0, accuracy: 1e-6)
-        XCTAssertEqual(ts[2], 0.5, accuracy: 1e-6)
+        // Working sigmas span 1 → sigma_min (1/1000), not 1 → 0; a separate 0 is appended.
+        XCTAssertEqual(ts[2], 0.334, accuracy: 1e-2)
+        XCTAssertEqual(ts[3], 0.001, accuracy: 1e-3)   // penultimate = sigma_min, not 0.25
         for i in 1..<ts.count { XCTAssertLessThan(ts[i], ts[i - 1]) }
     }
 
@@ -18,6 +20,8 @@ final class SamplerTests: XCTestCase {
         XCTAssertEqual(ts.last!, 0.0, accuracy: 1e-6)
         for i in 1..<ts.count { XCTAssertLessThan(ts[i], ts[i - 1]) }
         XCTAssertGreaterThan(ts[2], 0.5)   // shift > 1 keeps mid sigmas noisier than linear
+        // The final Euler step lands on a tiny shifted sigma_min, not a 0.5 cliff (the old bug).
+        XCTAssertLessThan(ts[ts.count - 2], 0.05)
     }
 
     func testEulerStep() {
