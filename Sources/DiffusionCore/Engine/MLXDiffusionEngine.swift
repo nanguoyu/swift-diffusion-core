@@ -117,7 +117,10 @@ public actor MLXDiffusionEngine: DiffusionEngine {
         }
 
         progress(.preparing)
-        let sigmas = sampler.timesteps(steps: request.steps)
+        // The architecture owns its sigma schedule (default = sampler.timesteps, so Z-Image is
+        // unchanged; FLUX overrides because its empirical-mu schedule is seqLen+steps dependent and
+        // a fixed-shift sampler cannot reproduce it — parity-critical for the streamed path).
+        let sigmas = architecture.sigmas(size: request.size, steps: request.steps, sampler: sampler)
         guard sigmas.count == request.steps + 1 else {
             throw EngineError.invalidRequest("sampler returned \(sigmas.count) sigmas for \(request.steps) steps")
         }

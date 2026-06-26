@@ -30,11 +30,24 @@ public protocol DiffusionArchitecture: Sendable {
     /// Free any architecture-owned caches retained across phases or generations, such as a
     /// lazily loaded decoder. Default is a no-op for stateless architectures.
     func releaseCachedResources()
+
+    /// The sigma schedule for this run (must return `steps + 1` values, trailing 0 included).
+    ///
+    /// Defaults to the engine's sampler, so an architecture whose schedule that sampler reproduces
+    /// (e.g. Z-Image) needs no override and stays byte-for-byte. FLUX overrides this: its schedule
+    /// uses an empirical `mu` that depends on BOTH the image sequence length AND the step count, so
+    /// no fixed-shift sampler can reproduce it — a streamed FLUX run that used the default sampler
+    /// would denoise on a different schedule than the resident pipeline and produce a different image.
+    /// The architecture owns the seqLen↔size mapping (it knows its own patch/VAE packing).
+    func sigmas(size: ImageSize, steps: Int, sampler: any Sampler) -> [Float]
 }
 
 public extension DiffusionArchitecture {
     func releaseTextEncoder() {}
     func releaseCachedResources() {}
+    func sigmas(size: ImageSize, steps: Int, sampler: any Sampler) -> [Float] {
+        sampler.timesteps(steps: steps)
+    }
 }
 
 /// The denoiser: patch-embed → N streamable blocks → unembed to a velocity/noise prediction.

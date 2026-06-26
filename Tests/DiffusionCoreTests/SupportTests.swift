@@ -101,6 +101,29 @@ final class GovernorTests: XCTestCase {
     }
 }
 
+final class SigmaHookTests: XCTestCase {
+    /// The default sigma hook must be byte-for-byte the engine's sampler, so an architecture that
+    /// doesn't override it (Z-Image) keeps the exact schedule it had before the hook existed.
+    func testDefaultSigmasDelegateToSampler() {
+        let arch = MockArchitecture(blocks: 1)
+        let sampler = FlowMatchEulerSampler(shift: 3.0, shiftTerminal: 0.02)
+        for steps in [2, 4, 8] {
+            XCTAssertEqual(arch.sigmas(size: .square1024, steps: steps, sampler: sampler),
+                           sampler.timesteps(steps: steps),
+                           "default sigmas must equal sampler.timesteps for \(steps) steps")
+        }
+    }
+
+    /// The default ignores image size (the current samplers are size-independent), so a size change
+    /// must not perturb a non-overriding architecture's schedule.
+    func testDefaultSigmasAreSizeIndependent() {
+        let arch = MockArchitecture(blocks: 1)
+        let sampler = FlowMatchEulerSampler(shift: 1.0)
+        XCTAssertEqual(arch.sigmas(size: .square512, steps: 4, sampler: sampler),
+                       arch.sigmas(size: .square1024, steps: 4, sampler: sampler))
+    }
+}
+
 final class ImageTests: XCTestCase {
     func testCGImageRoundTrip() throws {
         let arr = MLXArray(converting: [Double](repeating: 0.5, count: 2 * 2 * 3), [2, 2, 3]).asType(.float32)
