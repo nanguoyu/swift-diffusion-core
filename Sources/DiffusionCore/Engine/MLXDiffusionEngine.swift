@@ -52,11 +52,9 @@ public actor MLXDiffusionEngine: DiffusionEngine {
 
     public static func capabilities(for model: DiffusionModel, variant: ModelVariant,
                                     on device: DeviceTier) -> EngineCapabilities {
-        // FLUX.2 is macOS-only (handled by the facade engine), so it never "runs" on a phone here.
-        if model.family == .flux2 && device.isPhone {
-            return EngineCapabilities(runnable: false, residency: .unsupported,
-                                      estimatedPeakBytes: variant.approximateBytes, note: "macOS only")
-        }
+        // Residency (resident vs block-streaming) is memory-driven for every family — including FLUX.2,
+        // which now streams on iPhone instead of being macOS-only. The app routes 512 to the resident
+        // facade and 1024 to this streaming engine; the plan here is the fit the gallery badge shows.
         return MemoryGovernor.plan(variant: variant, device: device, externalSSDAvailable: false)
     }
 

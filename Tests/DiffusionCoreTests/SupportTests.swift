@@ -151,12 +151,13 @@ final class ImageTests: XCTestCase {
 final class CapabilitiesTests: XCTestCase {
     private let variant = ModelCatalog.fluxKlein4B.variants.first { $0.precision == .q4 }!
 
-    func testFluxUnsupportedOnPhone() {
+    func testFluxRunnableOnPhone() {
+        // FLUX.2 now runs on iPhone: 512 resident via the facade, 1024 block-streamed via the generic
+        // engine. capabilities() is memory-driven and no longer hard-blocks the phone.
         let phone = DeviceTier(physicalMemoryBytes: 12_000_000_000, isPhone: true)
         let caps = MLXDiffusionEngine.capabilities(for: ModelCatalog.fluxKlein4B, variant: variant, on: phone)
-        XCTAssertFalse(caps.runnable)
-        XCTAssertEqual(caps.residency, .unsupported)
-        XCTAssertEqual(caps.note, "macOS only")
+        XCTAssertTrue(caps.runnable)
+        XCTAssertNotEqual(caps.residency, .unsupported)
     }
 
     func testFluxRunnableOnMac() {
