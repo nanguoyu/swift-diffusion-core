@@ -7,6 +7,10 @@ public enum EngineError: Error, CustomStringConvertible {
     case invalidRequest(String)
     case streamingUnavailable
     case unsupportedOnDevice
+    /// Generation paused because the device got too hot and did not cool within the bounded window.
+    /// Recoverable — the caller should surface a "let your phone cool down" message and allow retry,
+    /// never treat it as a hard failure.
+    case pausedForHeat
     public var description: String {
         switch self {
         case .notLoaded: return "DiffusionEngine: no model loaded"
@@ -15,6 +19,7 @@ public enum EngineError: Error, CustomStringConvertible {
         case .streamingUnavailable:
             return "DiffusionEngine: this model needs a streaming weight source, which is not available yet"
         case .unsupportedOnDevice: return "DiffusionEngine: model does not fit this device"
+        case .pausedForHeat: return "DiffusionEngine: paused to let the device cool down"
         }
     }
 }
@@ -137,6 +142,10 @@ public actor MLXDiffusionEngine: DiffusionEngine {
             latent = sampler.step(latent: latent, modelOutput: velocity, t: t, tPrev: tNext)
             eval(latent)
             progress(.denoising(step: i + 1, total: request.steps, preview: nil))
+            // Thermal pacing between steps: a no-op on macOS and when cool; inserts cooperative
+            // sleeps / a cooling pause on a hot phone so a long run slows or pauses rather than
+            // tripping an OS thermal shutdown. Cancellation flows through Task.sleep.
+            try await ThermalGovernor.shared.throttleIfNeeded { progress(.cooling) }
             try request.control?.checkpoint()
         }
         try request.control?.checkpoint()

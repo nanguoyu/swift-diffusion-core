@@ -60,6 +60,45 @@ final class GovernorTests: XCTestCase {
         let qwen = variant(11.5, 14.14, 0.25)   // 14 GB encoder alone
         XCTAssertFalse(MemoryGovernor.plan(variant: qwen, device: ip8, externalSSDAvailable: true).runnable)
     }
+
+    // MARK: - Sequence-aware working set (Wave-1 step 4)
+
+    func testWorkingSetScalesLinearlyWithSeqLen() {
+        // Reference (512 px, 1024 tokens) = the 1 GB base; 1024 px (4096 tokens) = 4×; below the
+        // reference is clamped to the base so ≤512 plans never shrink.
+        XCTAssertEqual(MemoryGovernor.workingSet(forImageSeqLen: 1024), 1_000_000_000)
+        XCTAssertEqual(MemoryGovernor.workingSet(forImageSeqLen: 4096), 4_000_000_000)
+        XCTAssertEqual(MemoryGovernor.workingSet(forImageSeqLen: 256), 1_000_000_000)   // clamped up
+    }
+
+    func testNilSeqLenMatchesReference() {
+        // The default (nil) must be byte-for-byte the old flat-1 GB behavior so no existing caller's
+        // plan changes — guards against the audit's "over-conservatism forces streaming at 512" risk.
+        let klein4b = variant(2.18, 2.26, 0.17)
+        let byDefault = MemoryGovernor.plan(variant: klein4b, device: ip8, externalSSDAvailable: false)
+        let byReference = MemoryGovernor.plan(variant: klein4b, device: ip8, externalSSDAvailable: false,
+                                              imageSeqLen: MemoryGovernor.referenceImageSeqLen)
+        XCTAssertEqual(byDefault.residency, byReference.residency)
+        XCTAssertEqual(byDefault.estimatedPeakBytes, byReference.estimatedPeakBytes)
+        XCTAssertEqual(byDefault.residency, .resident)   // 512 stays resident on an 8 GB phone
+    }
+
+    func testLargeImageNotResidentOnPhone() {
+        // The actual 1024 OOM driver: a 4× activation working set no longer fits resident on an 8 GB
+        // phone. Must demote off `.resident` (streaming or refuse) BEFORE jetsam.
+        let klein4b = variant(2.18, 2.26, 0.17)
+        let plan = MemoryGovernor.plan(variant: klein4b, device: ip8, externalSSDAvailable: false,
+                                       imageSeqLen: 4096)
+        XCTAssertNotEqual(plan.residency, .resident)
+    }
+
+    func testLargeImageStillResidentOnMac() {
+        // A plugged-in Mac has the headroom — 1024 must stay resident (byte-for-byte fast path).
+        let klein4b = variant(2.18, 2.26, 0.17)
+        let plan = MemoryGovernor.plan(variant: klein4b, device: mac, externalSSDAvailable: false,
+                                       imageSeqLen: 4096)
+        XCTAssertEqual(plan.residency, .resident)
+    }
 }
 
 final class ImageTests: XCTestCase {
