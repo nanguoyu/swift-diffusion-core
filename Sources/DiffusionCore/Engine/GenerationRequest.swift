@@ -1,4 +1,52 @@
 import CoreGraphics
+import Foundation
+
+/// Cooperative control for one in-flight generation.
+///
+/// Engines call `checkpoint()` at safe boundaries. `pause()` blocks the next checkpoint without
+/// trying to serialize MLX state; `cancel()` wakes any paused checkpoint and throws
+/// `CancellationError`. This keeps pause/resume session-only and step-boundary scoped.
+public final class GenerationControl: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var paused = false
+    private var cancelled = false
+
+    public init() {}
+
+    public var isPaused: Bool {
+        condition.lock(); defer { condition.unlock() }
+        return paused
+    }
+
+    public func pause() {
+        condition.lock(); paused = true; condition.unlock()
+    }
+
+    public func resume() {
+        condition.lock()
+        paused = false
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    public func cancel() {
+        condition.lock()
+        cancelled = true
+        paused = false
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    public func checkpoint() throws {
+        try Task.checkCancellation()
+        condition.lock()
+        while paused && !cancelled { condition.wait() }
+        let shouldCancel = cancelled
+        condition.unlock()
+        if shouldCancel { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+}
 
 /// A single text-to-image (or image-to-image) request.
 public struct GenerationRequest: Sendable {
@@ -14,6 +62,8 @@ public struct GenerationRequest: Sendable {
     /// Optional reference image for image-to-image.
     public var referenceImage: CGImage?
     public var strength: Float
+    /// Optional cooperative control used for cancel/pause at engine-defined safe points.
+    public var control: GenerationControl?
 
     public init(prompt: String,
                 negativePrompt: String? = nil,
@@ -22,7 +72,8 @@ public struct GenerationRequest: Sendable {
                 seed: UInt64,
                 size: ImageSize = .square1024,
                 referenceImage: CGImage? = nil,
-                strength: Float = 0.6) {
+                strength: Float = 0.6,
+                control: GenerationControl? = nil) {
         self.prompt = prompt
         self.negativePrompt = negativePrompt
         self.steps = steps
@@ -31,6 +82,7 @@ public struct GenerationRequest: Sendable {
         self.size = size
         self.referenceImage = referenceImage
         self.strength = strength
+        self.control = control
     }
 }
 

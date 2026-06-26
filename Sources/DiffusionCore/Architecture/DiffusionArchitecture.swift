@@ -26,10 +26,15 @@ public protocol DiffusionArchitecture: Sendable {
     /// conditioning is captured (two-phase staging) so the encoder and transformer never
     /// co-reside. Default is a no-op for architectures that don't hold a releasable encoder.
     func releaseTextEncoder()
+
+    /// Free any architecture-owned caches retained across phases or generations, such as a
+    /// lazily loaded decoder. Default is a no-op for stateless architectures.
+    func releaseCachedResources()
 }
 
 public extension DiffusionArchitecture {
     func releaseTextEncoder() {}
+    func releaseCachedResources() {}
 }
 
 /// The denoiser: patch-embed → N streamable blocks → unembed to a velocity/noise prediction.

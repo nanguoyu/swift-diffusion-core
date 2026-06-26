@@ -88,11 +88,13 @@ public actor MLXDiffusionEngine: DiffusionEngine {
         }
         guard let source else { throw EngineError.notLoaded }
         let streaming = residency == .streamingInternal || residency == .streamingExternal
+        try request.control?.checkpoint()
 
         progress(.encoding)
         let conditioning = try await architecture.encode(request.prompt,
                                                          negative: request.negativePrompt,
                                                          source: source)
+        try request.control?.checkpoint()
         // Two-phase staging: the encoder output is captured, so free the encoder before the
         // transformer loads. No-op for architectures without a releasable encoder.
         architecture.releaseTextEncoder()
@@ -100,9 +102,14 @@ public actor MLXDiffusionEngine: DiffusionEngine {
         var latent = try architecture.initialLatent(size: request.size, seed: request.seed,
                                                      reference: request.referenceImage,
                                                      strength: request.strength, source: source)
+        try request.control?.checkpoint()
 
         let denoiser = try architecture.makeDenoiser(source: source)
         if !streaming { for block in denoiser.blocks { try block.load(from: source) } }
+        defer {
+            if !streaming { for block in denoiser.blocks { block.release() } }
+            MLX.GPU.clearCache()
+        }
 
         progress(.preparing)
         let sigmas = sampler.timesteps(steps: request.steps)
@@ -110,11 +117,13 @@ public actor MLXDiffusionEngine: DiffusionEngine {
             throw EngineError.invalidRequest("sampler returned \(sigmas.count) sigmas for \(request.steps) steps")
         }
         for i in 0 ..< request.steps {
+            try request.control?.checkpoint()
             let t = sigmas[i], tNext = sigmas[i + 1]
             let timestep = MLXArray(t)
 
             var hidden = denoiser.embed(latent: latent, timestep: timestep, conditioning: conditioning)
             for block in denoiser.blocks {
+                try request.control?.checkpoint()
                 if streaming { try block.load(from: source) }
                 hidden = block(hidden, conditioning: conditioning, timestep: timestep)
                 if streaming {
@@ -128,17 +137,19 @@ public actor MLXDiffusionEngine: DiffusionEngine {
             latent = sampler.step(latent: latent, modelOutput: velocity, t: t, tPrev: tNext)
             eval(latent)
             progress(.denoising(step: i + 1, total: request.steps, preview: nil))
+            try request.control?.checkpoint()
         }
-        if !streaming { for block in denoiser.blocks { block.release() } }
-
+        try request.control?.checkpoint()
         progress(.decoding)
         let image = try await architecture.decode(latent, source: source)
+        try request.control?.checkpoint()
         progress(.finished(image))
         return image
     }
 
     public func unload() async {
         source = nil
+        architecture.releaseCachedResources()
         MLX.GPU.clearCache()
     }
 }
