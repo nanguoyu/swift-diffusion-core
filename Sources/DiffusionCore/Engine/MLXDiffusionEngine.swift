@@ -38,10 +38,16 @@ public actor MLXDiffusionEngine: DiffusionEngine {
     private let device: DeviceTier
     private var source: WeightSource?
     private var residency: EngineCapabilities.Residency = .resident
+    /// Streaming knob: materialize (eval + clearCache) every K blocks instead of every block.
+    /// 1 keeps the proven per-block residency plateau; larger lets K block runs pipeline on the
+    /// GPU before a sync, trading ~K blocks of peak weight residency for fewer stalls.
+    private let streamEvalEveryK: Int
 
     public init(architecture: any DiffusionArchitecture,
                 sampler: (any Sampler)? = nil,
-                device: DeviceTier = .current) {
+                device: DeviceTier = .current,
+                streamEvalEveryK: Int = 1) {
+        self.streamEvalEveryK = max(1, streamEvalEveryK)
         self.architecture = architecture
         // Build the sampler from the architecture's spec so it gets the right schedule skew (e.g.
         // Z-Image's shift = 3) instead of silently defaulting to the plain shift = 1 schedule.
@@ -128,14 +134,20 @@ public actor MLXDiffusionEngine: DiffusionEngine {
             let timestep = MLXArray(t)
 
             var hidden = denoiser.embed(latent: latent, timestep: timestep, conditioning: conditioning)
-            for block in denoiser.blocks {
+            for (blockIdx, block) in denoiser.blocks.enumerated() {
                 try request.control?.checkpoint()
                 if streaming { try block.load(from: source) }
                 hidden = block(hidden, conditioning: conditioning, timestep: timestep)
                 if streaming {
-                    eval(hidden)
                     block.release()
-                    MLX.GPU.clearCache()
+                    // Coarse materialization: sync every K blocks (default 1) so runs pipeline; K
+                    // blocks' weights stay live until the eval, so peak grows ~K blocks. Bit-exact —
+                    // eval cadence changes nothing about the values.
+                    let isLastBlock = blockIdx == denoiser.blocks.count - 1
+                    if (blockIdx + 1) % streamEvalEveryK == 0 || isLastBlock {
+                        eval(hidden)
+                        MLX.GPU.clearCache()
+                    }
                 }
             }
             let velocity = denoiser.unembed(hidden)
