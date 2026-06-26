@@ -105,8 +105,9 @@ public actor MLXDiffusionEngine: DiffusionEngine {
                                                          source: source)
         try request.control?.checkpoint()
         // Two-phase staging: the encoder output is captured, so free the encoder before the
-        // transformer loads. No-op for architectures without a releasable encoder.
-        architecture.releaseTextEncoder()
+        // transformer loads. Awaited so a @MainActor encoder singleton is actually freed before the
+        // transformer begins streaming. No-op for architectures without a releasable encoder.
+        await architecture.releaseTextEncoder()
 
         var latent = try architecture.initialLatent(size: request.size, seed: request.seed,
                                                      reference: request.referenceImage,

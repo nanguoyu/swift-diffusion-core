@@ -22,10 +22,11 @@ public protocol DiffusionArchitecture: Sendable {
     /// Decode the final latent to an image (VAE).
     func decode(_ latent: MLXArray, source: WeightSource) async throws -> CGImage
 
-    /// Free the text encoder after `encode` returns. The engine calls this once the
-    /// conditioning is captured (two-phase staging) so the encoder and transformer never
-    /// co-reside. Default is a no-op for architectures that don't hold a releasable encoder.
-    func releaseTextEncoder()
+    /// Free the text encoder after `encode` returns. The engine `await`s this once the conditioning
+    /// is captured (two-phase staging) so the encoder and transformer never co-reside. It is `async`
+    /// so an implementation can hop to the main actor to drop a `@MainActor` encoder singleton and
+    /// have that free COMPLETE before the transformer begins loading. Default is a no-op.
+    func releaseTextEncoder() async
 
     /// Free any architecture-owned caches retained across phases or generations, such as a
     /// lazily loaded decoder. Default is a no-op for stateless architectures.
@@ -43,7 +44,7 @@ public protocol DiffusionArchitecture: Sendable {
 }
 
 public extension DiffusionArchitecture {
-    func releaseTextEncoder() {}
+    func releaseTextEncoder() async {}
     func releaseCachedResources() {}
     func sigmas(size: ImageSize, steps: Int, sampler: any Sampler) -> [Float] {
         sampler.timesteps(steps: steps)
