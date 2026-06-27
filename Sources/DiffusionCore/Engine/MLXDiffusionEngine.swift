@@ -172,12 +172,17 @@ public actor MLXDiffusionEngine: DiffusionEngine {
             }
             let velocity = denoiser.unembed(hidden)
 
+            // x0 PREDICTION for the preview: the raw in-loop latent is mostly noise until the last of
+            // a few rectified-flow steps, so previewing it shows noise→snap. `latent - t·velocity`
+            // extrapolates the flow to sigma=0 = the model's current GUESS of the finished image, so
+            // the preview resolves progressively from step 1. Uses the pre-step latent (at sigma=t).
+            let x0pred = latent - timestep * velocity
             latent = sampler.step(latent: latent, modelOutput: velocity, t: t, tPrev: tNext)
             eval(latent)
             // Cheap latent->RGB preview (architecture-owned, no VAE) so a long run shows the image
             // forming instead of a blank canvas; nil for architectures without preview factors.
             progress(.denoising(step: i + 1, total: request.steps,
-                                preview: architecture.latentPreview(latent)))
+                                preview: architecture.latentPreview(x0pred)))
             // Thermal pacing between steps: a no-op on macOS and when cool; inserts cooperative
             // sleeps / a cooling pause on a hot phone so a long run slows or pauses rather than
             // tripping an OS thermal shutdown. Cancellation flows through Task.sleep.
