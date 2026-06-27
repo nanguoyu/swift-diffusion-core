@@ -27,6 +27,24 @@ public enum MemoryGovernor {
         return Int64(Double(baseWorkingSet) * multiplier)
     }
 
+    /// Additional streamed activation working set per reference-token block ABOVE the reference.
+    /// Block-streaming releases each denoiser block and clears the MLX reuse pool every K blocks
+    /// (see `MLXDiffusionEngine.generate`), so the transient above the resident block window is a
+    /// single block's activations + VAE-decode — it grows FAR slower than the resident O(area)
+    /// `workingSet`. Calibrated to the measured on-device anchor: klein4B 1024 px (4096 tokens)
+    /// end-to-end streamed peak = 3.83 GB = max(encoder 2.26 GB, 1.2 GB resident window) +
+    /// streamingWorkingSet(4096). With base 1.0 GB at the reference, 4096 → 1.0 + 3·0.19 = 1.57 GB,
+    /// giving 2.26 + 1.57 = 3.83 GB.
+    private static let streamingWorkingSetPerStep: Int64 = 190_000_000
+
+    /// Streamed activation working set for an image token count. Equals `baseWorkingSet` at/below the
+    /// reference (so every `nil`/≤512 caller's streaming peak is byte-for-byte unchanged) and grows
+    /// by `streamingWorkingSetPerStep` per `referenceImageSeqLen` block above it.
+    static func streamingWorkingSet(forImageSeqLen seqLen: Int) -> Int64 {
+        let stepsAbove = max(0.0, Double(seqLen) / Double(referenceImageSeqLen) - 1.0)
+        return baseWorkingSet + Int64(Double(streamingWorkingSetPerStep) * stepsAbove)
+    }
+
     /// Plan residency for a variant. `externalSSDAvailable` allows the streaming-external rung
     /// when the model is otherwise too big for memory. `imageSeqLen` (image token count) scales the
     /// activation working set for larger resolutions; `nil` uses the reference (512 px) — keeping
@@ -36,12 +54,16 @@ public enum MemoryGovernor {
                             imageSeqLen: Int? = nil) -> EngineCapabilities {
         let c = variant.components
         let budget = device.memoryBudgetBytes
-        let workingSet = workingSet(forImageSeqLen: imageSeqLen ?? referenceImageSeqLen)
+        let seqLen = imageSeqLen ?? referenceImageSeqLen
+        let workingSet = workingSet(forImageSeqLen: seqLen)
 
-        // Two-phase peak: encoder phase vs. transformer+VAE phase never co-reside.
+        // Two-phase peak: encoder phase vs. transformer+VAE phase never co-reside. Uses the resident
+        // O(area) working set — the whole transformer stays live, so activations are NOT bounded.
         let twoPhasePeak = max(c.textEncoder, c.transformer + c.vae) + workingSet
-        // Streaming peak: only the encoder (run once) + a few resident blocks + working set.
-        let streamingPeak = max(c.textEncoder, 1_200_000_000) + workingSet
+        // Streaming peak: encoder (run once) + a ~1.2 GB resident block window + the STREAMED working
+        // set. The reuse-shell bounds per-block residency, so this grows far slower than the resident
+        // working set above the reference (calibrated to the measured 3.83 GB at 1024 px).
+        let streamingPeak = max(c.textEncoder, 1_200_000_000) + streamingWorkingSet(forImageSeqLen: seqLen)
 
         if twoPhasePeak <= Int64(Double(budget) * 0.9) {
             return EngineCapabilities(runnable: true, residency: .resident,

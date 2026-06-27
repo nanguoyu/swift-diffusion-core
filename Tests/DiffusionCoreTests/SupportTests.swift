@@ -99,6 +99,42 @@ final class GovernorTests: XCTestCase {
                                        imageSeqLen: 4096)
         XCTAssertEqual(plan.residency, .resident)
     }
+
+    // MARK: - Streaming working set (calibrated to the measured 1024 end-to-end peak)
+
+    func testStreamingWorkingSetEqualsBaseAtReference() {
+        // Pinned to the resident base at/below the reference so every nil/≤512 caller's streaming peak
+        // is byte-for-byte unchanged.
+        XCTAssertEqual(MemoryGovernor.streamingWorkingSet(forImageSeqLen: 1024), 1_000_000_000)
+        XCTAssertEqual(MemoryGovernor.streamingWorkingSet(forImageSeqLen: 256), 1_000_000_000)   // clamped
+    }
+
+    func testStreamingWorkingSetGrowsGentlyAboveReference() {
+        // 4096 tokens (1024 px) → 1.0 + 3·0.19 = 1.57 GB (NOT the resident 4×). Locks the calibration.
+        XCTAssertEqual(MemoryGovernor.streamingWorkingSet(forImageSeqLen: 4096), 1_570_000_000)
+    }
+
+    func testKlein1024StreamsOnEightGigPhone() {
+        // The headline: 1024 (4096 tokens) on an 8 GB phone plans the explicit low-peak STREAMING path
+        // — runnable, not resident, not unsupported — and estimatedPeakBytes reproduces the MEASURED
+        // 3.83 GB end-to-end streamed peak. This is the bug-#2 fix: a naive 4× thread would have
+        // wrongly returned .unsupported (6.26 GB) and blocked 1024.
+        let klein4b = variant(2.18, 2.26, 0.17)
+        let plan = MemoryGovernor.plan(variant: klein4b, device: ip8, externalSSDAvailable: false,
+                                       imageSeqLen: 4096)
+        XCTAssertTrue(plan.runnable)
+        XCTAssertEqual(plan.residency, .streamingInternal)
+        XCTAssertEqual(plan.estimatedPeakBytes, 3_830_000_000, accuracy: 20_000_000)
+    }
+
+    func testKlein512StaysResidentWithExplicitSeqLen() {
+        // 512 (1024 tokens) must still plan resident on an 8 GB phone (the known-safe 4.3 GB path).
+        let klein4b = variant(2.18, 2.26, 0.17)
+        let plan = MemoryGovernor.plan(variant: klein4b, device: ip8, externalSSDAvailable: false,
+                                       imageSeqLen: 1024)
+        XCTAssertEqual(plan.residency, .resident)
+        XCTAssertEqual(plan.estimatedPeakBytes, 3_350_000_000, accuracy: 20_000_000)
+    }
 }
 
 final class SigmaHookTests: XCTestCase {
@@ -164,5 +200,26 @@ final class CapabilitiesTests: XCTestCase {
         let mac = DeviceTier(physicalMemoryBytes: 18_000_000_000, isPhone: false)
         let caps = MLXDiffusionEngine.capabilities(for: ModelCatalog.fluxKlein4B, variant: variant, on: mac)
         XCTAssertTrue(caps.runnable)
+    }
+
+    func testFluxStreamsAt1024OnPhone() {
+        // The size-aware overload: 1024 (4096 tokens) on an 8 GB phone reports the STREAMING plan the
+        // app actually runs (3.83 GB), not the resident facade's heavier plan. Drives the 1024 fit badge.
+        let phone = DeviceTier(physicalMemoryBytes: 8_000_000_000, isPhone: true)
+        let caps = MLXDiffusionEngine.capabilities(for: ModelCatalog.fluxKlein4B, variant: variant,
+                                                   on: phone, imageSeqLen: 4096)
+        XCTAssertTrue(caps.runnable)
+        XCTAssertEqual(caps.residency, .streamingInternal)
+    }
+
+    func testProtocolCapabilitiesDefaultsToReference() {
+        // The no-seqLen protocol method must equal the seqLen-nil overload (reference / 512 px) so
+        // Z-Image and the existing callers stay byte-for-byte unchanged.
+        let phone = DeviceTier(physicalMemoryBytes: 8_000_000_000, isPhone: true)
+        let proto = MLXDiffusionEngine.capabilities(for: ModelCatalog.fluxKlein4B, variant: variant, on: phone)
+        let ref = MLXDiffusionEngine.capabilities(for: ModelCatalog.fluxKlein4B, variant: variant,
+                                                  on: phone, imageSeqLen: nil)
+        XCTAssertEqual(proto.residency, ref.residency)
+        XCTAssertEqual(proto.estimatedPeakBytes, ref.estimatedPeakBytes)
     }
 }

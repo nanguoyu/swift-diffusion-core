@@ -42,12 +42,19 @@ public actor MLXDiffusionEngine: DiffusionEngine {
     /// 1 keeps the proven per-block residency plateau; larger lets K block runs pipeline on the
     /// GPU before a sync, trading ~K blocks of peak weight residency for fewer stalls.
     private let streamEvalEveryK: Int
+    /// The image token count this engine is being built to render, used to size the activation
+    /// working set at load() time — BEFORE the first GenerationRequest exists. The app rebuilds the
+    /// engine when the request crosses the 512↔1024 residency band, so the target size is known here.
+    /// `nil` ⇒ the reference (512 px) — keeping Z-Image and the macOS/test callers byte-for-byte.
+    private let targetImageSeqLen: Int?
 
     public init(architecture: any DiffusionArchitecture,
                 sampler: (any Sampler)? = nil,
                 device: DeviceTier = .current,
-                streamEvalEveryK: Int = 1) {
+                streamEvalEveryK: Int = 1,
+                targetImageSeqLen: Int? = nil) {
         self.streamEvalEveryK = max(1, streamEvalEveryK)
+        self.targetImageSeqLen = targetImageSeqLen
         self.architecture = architecture
         // Build the sampler from the architecture's spec so it gets the right schedule skew (e.g.
         // Z-Image's shift = 3) instead of silently defaulting to the plain shift = 1 schedule.
@@ -58,16 +65,28 @@ public actor MLXDiffusionEngine: DiffusionEngine {
 
     public static func capabilities(for model: DiffusionModel, variant: ModelVariant,
                                     on device: DeviceTier) -> EngineCapabilities {
+        // Protocol requirement: reference-resolution fit (512 px). The app's Z-Image badge calls this
+        // (Z-Image renders at the reference seqLen on iPhone), so its number is unchanged.
+        capabilities(for: model, variant: variant, on: device, imageSeqLen: nil)
+    }
+
+    /// Sequence-aware fit. `imageSeqLen` (image token count = (W/16)·(H/16); 512 px = 1024, 1024 px =
+    /// 4096) scales the working set so the badge for a large render reflects the streaming plan it
+    /// will actually take. `nil` ⇒ reference (512 px), identical to the protocol method.
+    public static func capabilities(for model: DiffusionModel, variant: ModelVariant,
+                                    on device: DeviceTier, imageSeqLen: Int?) -> EngineCapabilities {
         // Residency (resident vs block-streaming) is memory-driven for every family — including FLUX.2,
         // which now streams on iPhone instead of being macOS-only. The app routes 512 to the resident
         // facade and 1024 to this streaming engine; the plan here is the fit the gallery badge shows.
-        return MemoryGovernor.plan(variant: variant, device: device, externalSSDAvailable: false)
+        return MemoryGovernor.plan(variant: variant, device: device,
+                                   externalSSDAvailable: false, imageSeqLen: imageSeqLen)
     }
 
     public func load(_ model: DiffusionModel, variant: ModelVariant, source: WeightSource,
                      progress: @Sendable @escaping (Double) -> Void) async throws {
         let plan = MemoryGovernor.plan(variant: variant, device: device,
-                                       externalSSDAvailable: source.isStreaming)
+                                       externalSSDAvailable: source.isStreaming,
+                                       imageSeqLen: targetImageSeqLen)
         guard plan.runnable else { throw EngineError.unsupportedOnDevice }
 
         // Step the residency rung down if live process headroom is below the planned peak.
