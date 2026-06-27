@@ -174,7 +174,10 @@ public actor MLXDiffusionEngine: DiffusionEngine {
 
             latent = sampler.step(latent: latent, modelOutput: velocity, t: t, tPrev: tNext)
             eval(latent)
-            progress(.denoising(step: i + 1, total: request.steps, preview: nil))
+            // Cheap latent->RGB preview (architecture-owned, no VAE) so a long run shows the image
+            // forming instead of a blank canvas; nil for architectures without preview factors.
+            progress(.denoising(step: i + 1, total: request.steps,
+                                preview: architecture.latentPreview(latent)))
             // Thermal pacing between steps: a no-op on macOS and when cool; inserts cooperative
             // sleeps / a cooling pause on a hot phone so a long run slows or pauses rather than
             // tripping an OS thermal shutdown. Cancellation flows through Task.sleep.

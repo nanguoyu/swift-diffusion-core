@@ -41,6 +41,14 @@ public protocol DiffusionArchitecture: Sendable {
     /// would denoise on a different schedule than the resident pipeline and produce a different image.
     /// The architecture owns the seqLen↔size mapping (it knows its own patch/VAE packing).
     func sigmas(size: ImageSize, steps: Int, sampler: any Sampler) -> [Float]
+
+    /// A CHEAP latent→RGB preview of the in-progress latent — a tiny per-channel linear map, NOT the
+    /// VAE — so the engine can show the image forming during a long run (a 1024 phone render is
+    /// minutes) instead of a blank canvas. The architecture owns the latent layout (unpack/unpatchify)
+    /// and the per-model RGB factors; it returns a small CGImage at ~the latent grid resolution (the UI
+    /// upscales it). Must be fast: it runs every step on the generation actor. Default = nil (no
+    /// preview), so an architecture without factors costs nothing and the engine emits `preview: nil`.
+    func latentPreview(_ latent: MLXArray) -> CGImage?
 }
 
 public extension DiffusionArchitecture {
@@ -49,6 +57,7 @@ public extension DiffusionArchitecture {
     func sigmas(size: ImageSize, steps: Int, sampler: any Sampler) -> [Float] {
         sampler.timesteps(steps: steps)
     }
+    func latentPreview(_ latent: MLXArray) -> CGImage? { nil }
 }
 
 /// The denoiser: patch-embed → N streamable blocks → unembed to a velocity/noise prediction.
