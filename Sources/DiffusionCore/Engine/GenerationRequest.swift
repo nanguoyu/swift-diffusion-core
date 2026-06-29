@@ -59,8 +59,12 @@ public struct GenerationRequest: Sendable {
     public var guidance: Float
     public var seed: UInt64
     public var size: ImageSize
-    /// Optional reference image for image-to-image.
+    /// Optional reference image for classic (strength-based) image-to-image. `referenceImages` takes
+    /// precedence when non-empty.
     public var referenceImage: CGImage?
+    /// Reference images for FLUX.2-style reference-CONTEXT i2i (1–3 images encoded and concatenated
+    /// into the transformer sequence as conditioning; output denoised from pure noise). Empty = no i2i.
+    public var referenceImages: [CGImage]
     public var strength: Float
     /// Optional cooperative control used for cancel/pause at engine-defined safe points.
     public var control: GenerationControl?
@@ -72,6 +76,7 @@ public struct GenerationRequest: Sendable {
                 seed: UInt64,
                 size: ImageSize = .square1024,
                 referenceImage: CGImage? = nil,
+                referenceImages: [CGImage] = [],
                 strength: Float = 0.6,
                 control: GenerationControl? = nil) {
         self.prompt = prompt
@@ -81,6 +86,7 @@ public struct GenerationRequest: Sendable {
         self.seed = seed
         self.size = size
         self.referenceImage = referenceImage
+        self.referenceImages = referenceImages
         self.strength = strength
         self.control = control
     }
