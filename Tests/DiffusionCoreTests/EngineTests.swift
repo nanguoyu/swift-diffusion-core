@@ -49,6 +49,39 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(arch.denoiser.mockBlocks.map(\.releaseCount), [3, 3])
     }
 
+    private func streamyVariant() -> ModelVariant {
+        let comps = ComponentSizes(transformer: 5_000_000_000, textEncoder: 2_300_000_000, vae: 160_000_000)
+        return ModelVariant(precision: .q4, approximateBytes: 7_460_000_000, components: comps,
+                            layout: .mfluxShard, source: ModelSource(huggingFaceRepo: "example/streamy"))
+    }
+
+    func testStreamingPeakBytesIsTheLeanestPeak() {
+        let phone = DeviceTier(physicalMemoryBytes: 8_000_000_000, isPhone: true)
+        let variant = streamyVariant()
+        let plan = MemoryGovernor.plan(variant: variant, device: phone, externalSSDAvailable: false)
+        XCTAssertEqual(plan.residency, .streamingInternal)
+        // It IS the peak the streaming plan reports, and well below the resident two-phase peak.
+        XCTAssertEqual(MemoryGovernor.streamingPeakBytes(variant: variant), plan.estimatedPeakBytes)
+        XCTAssertLessThan(MemoryGovernor.streamingPeakBytes(variant: variant),
+                          max(variant.components.textEncoder, variant.components.transformer + variant.components.vae))
+    }
+
+    func testLoadRefusesWhenLiveHeadroomBelowStreamingPeak() async throws {
+        let phone = DeviceTier(physicalMemoryBytes: 8_000_000_000, isPhone: true)
+        let variant = streamyVariant()
+        // Live headroom one byte below the leanest peak → starting would jetsam, so load must refuse.
+        MemoryGovernor.availableBytesOverride = MemoryGovernor.streamingPeakBytes(variant: variant) - 1
+        defer { MemoryGovernor.availableBytesOverride = nil }
+        let engine = MLXDiffusionEngine(architecture: MockArchitecture(blocks: 2), device: phone)
+        do {
+            try await engine.load(ModelCatalog.zImageTurbo, variant: variant,
+                                  source: MockWeightSource(isStreaming: false), progress: { _ in })
+            XCTFail("expected insufficientMemory when live headroom is below the streaming peak")
+        } catch EngineError.insufficientMemory {
+            // expected — a recoverable refusal instead of a jetsam crash mid-run
+        }
+    }
+
     func testGenerateWithoutLoadThrows() async {
         let engine = MLXDiffusionEngine(architecture: MockArchitecture(blocks: 1), device: macTier)
         do {

@@ -11,6 +11,10 @@ public enum EngineError: Error, CustomStringConvertible {
     /// Recoverable — the caller should surface a "let your phone cool down" message and allow retry,
     /// never treat it as a hard failure.
     case pausedForHeat
+    /// The model fits this device's budget, but LIVE process headroom right now is below even the
+    /// leanest (streaming) peak — so starting would jetsam-kill the app. Recoverable: surface a "free up
+    /// memory / pick a smaller size" message and allow retry, don't treat it as a hard failure.
+    case insufficientMemory
     public var description: String {
         switch self {
         case .notLoaded: return "DiffusionEngine: no model loaded"
@@ -20,6 +24,7 @@ public enum EngineError: Error, CustomStringConvertible {
             return "DiffusionEngine: this model needs a streaming weight source, which is not available yet"
         case .unsupportedOnDevice: return "DiffusionEngine: model does not fit this device"
         case .pausedForHeat: return "DiffusionEngine: paused to let the device cool down"
+        case .insufficientMemory: return "DiffusionEngine: not enough free memory right now to run this safely"
         }
     }
 }
@@ -98,6 +103,15 @@ public actor MLXDiffusionEngine: DiffusionEngine {
         let streaming = residency == .streamingInternal || residency == .streamingExternal
         // A streaming plan only saves memory if the source actually frees on release.
         if streaming, !source.freesOnRelease { throw EngineError.streamingUnavailable }
+
+        // Pre-flight: the plan fits the static budget, but if LIVE process headroom right now is below even
+        // the leanest (streaming) peak, starting would jetsam-kill the app mid-run. Refuse RECOVERABLY so
+        // the UI can say "free up memory / smaller size" + offer Retry, instead of a hard crash. Scoped to
+        // the streaming path (the iPhone heavy paths); resident/two-phase only run where headroom is ample.
+        if streaming,
+           MemoryGovernor.availableBytesNow() < MemoryGovernor.streamingPeakBytes(variant: variant, imageSeqLen: targetImageSeqLen) {
+            throw EngineError.insufficientMemory
+        }
 
         // Bound the MLX reuse pool so weights freed by release() can actually plateau.
         let cacheLimit = streaming ? 384_000_000

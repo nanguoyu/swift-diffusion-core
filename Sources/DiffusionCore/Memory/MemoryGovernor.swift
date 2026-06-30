@@ -89,9 +89,24 @@ public enum MemoryGovernor {
                                   estimatedPeakBytes: streamingPeak, note: "Needs more memory")
     }
 
+    /// The leanest (block-streaming) peak — the true minimum a render needs, regardless of which
+    /// residency `plan` chose. `load()` refuses recoverably when even this exceeds LIVE process headroom,
+    /// rather than starting a run that jetsam-kills the app mid-stream. Mirrors the `streamingPeak` term
+    /// inside `plan`.
+    public static func streamingPeakBytes(variant: ModelVariant, imageSeqLen: Int? = nil) -> Int64 {
+        let c = variant.components
+        let seqLen = imageSeqLen ?? referenceImageSeqLen
+        return max(c.textEncoder, 1_200_000_000) + streamingWorkingSet(forImageSeqLen: seqLen)
+    }
+
+    /// Test seam: when non-nil, replaces the live-headroom probe so the low-memory refusal path is
+    /// exercisable. Production leaves it nil and reads the real `MemoryProbe`.
+    public static var availableBytesOverride: Int64?
+
     /// Live headroom for this process (bytes). Use this — not nominal RAM — at load time.
     /// Returns `Int64.max` where the probe doesn't apply (avoids a `UInt64.max → Int64` trap).
     public static func availableBytesNow() -> Int64 {
+        if let availableBytesOverride { return availableBytesOverride }
         let bytes = MemoryProbe.availableBytes()
         return bytes == .max ? .max : Int64(bytes)
     }
